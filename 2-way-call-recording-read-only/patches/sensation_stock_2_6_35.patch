@@ -1,0 +1,1463 @@
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/apr_audio.h pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/apr_audio.h
+--- pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/apr_audio.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/apr_audio.h	2011-08-12 16:21:37.000000000 +0400
+@@ -43,10 +43,15 @@
+ 	RSVD_2 = 9,
+ 	RSVD_3 = 10,
+ 	DIGI_MIC_TX = 11,
+-	AFE_MAX_PORTS ,
++/*	AFE_MAX_PORTS , */
+ 	INVALID = 0xFFFF,
+ };
+ 
++#define VOICE_RECORD_RX 0x8003          /* index = 12 */
++#define VOICE_RECORD_TX 0x8004          /* index = 13 */
++#define VOICE_PLAYBACK_TX 0x8005        /* index = 14 */
++
++
+ #define AFE_PORT_CMD_START 0x000100ca
+ struct afe_port_start_command {
+ 	struct apr_hdr hdr;
+@@ -246,7 +251,6 @@
+ 	u16	port_id;
+ } __attribute__ ((packed));
+ 
+-
+ #define AFE_EVENT_GET_ACTIVE_HANDLES 0x00010102
+ struct afe_get_active_handles_rsp {
+ 	u16	port_id;
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/audio_dev_ctl.h pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/audio_dev_ctl.h
+--- pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/audio_dev_ctl.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/audio_dev_ctl.h	2011-08-12 13:24:29.000000000 +0400
+@@ -226,4 +226,8 @@
+ int msm_set_voice_mute(int dir, int mute);
+ int msm_get_voice_state(void);
+ void msm_set_voc_freq(int tx_freq, int rx_freq);
++
++int msm_enable_incall_recording(int popp_id, int rec_mode, int rate, int channel_mode);
++int msm_disable_incall_recording(uint32_t popp_id, uint32_t rec_mode);
++
+ #endif
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/q6afe.h pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/q6afe.h
+--- pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/q6afe.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/q6afe.h	2011-08-12 15:08:17.000000000 +0400
+@@ -34,9 +34,33 @@
+ #define MSM_AFE_MONO_LEFT	2
+ #define MSM_AFE_STEREO		3
+ 
++enum {
++        IDX_PRIMARY_I2S_RX = 0,
++        IDX_PRIMARY_I2S_TX = 1,
++        IDX_PCM_RX = 2,
++        IDX_PCM_TX = 3,
++        IDX_SECONDARY_I2S_RX = 4,
++        IDX_SECONDARY_I2S_TX = 5,
++        IDX_MI2S_RX = 6,
++        IDX_MI2S_TX = 7,
++        IDX_HDMI_RX = 8,
++        IDX_RSVD_2 = 9,
++        IDX_RSVD_3 = 10,
++        IDX_DIGI_MIC_TX = 11,
++        IDX_VOICE_RECORD_RX = 12,
++        IDX_VOICE_RECORD_TX = 13,
++        IDX_VOICE_PLAYBACK_TX = 14,
++        AFE_MAX_PORTS
++};
++
+ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate);
+ int afe_close(int port_id);
+ int afe_loopback(u16 enable, u16 rx_port, u16 tx_port);
+ int afe_sidetone(u16 tx_port_id, u16 rx_port_id, u16 enable, uint16_t gain);
++int afe_validate_port(u16 port_id);
++int afe_get_port_index(u16 port_id);
++int afe_start_pseudo_port(u16 port_id);
++int afe_stop_pseudo_port(u16 port_id);
++
+ 
+ #endif /* __Q6AFE_H__ */
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/q6voice.h pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/q6voice.h
+--- pyramid_CRC/arch/arm/mach-msm/include/mach/qdsp6v2/q6voice.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/include/mach/qdsp6v2/q6voice.h	2011-08-12 13:29:07.000000000 +0400
+@@ -254,6 +254,11 @@
+ #define VSS_ISTREAM_CMD_SET_ENC_DTX_MODE		0x0001101D
+ /* Set encoder DTX mode. */
+ 
++
++#define VSS_ISTREAM_CMD_START_RECORD                   0x00011236
++#define VSS_ISTREAM_CMD_STOP_RECORD                    0x00011237
++
++
+ struct vss_istream_cmd_create_passive_control_session_t {
+ 	char name[20];
+ 	/**<
+@@ -389,6 +394,27 @@
+ 	 */
+ } __attribute__((packed));
+ 
++
++#define VSS_TAP_POINT_NONE                             0x00010F78
++/* Indicates no tapping for specified path. */
++
++#define VSS_TAP_POINT_STREAM_END                       0x00010F79
++/* Indicates that specified path should be tapped at the end of the stream. */
++
++struct vss_istream_cmd_start_record_t {
++       uint32_t rx_tap_point;
++       /* Tap point to use on the Rx path. Supported values are:
++        * VSS_TAP_POINT_NONE : Do not record Rx path.
++        * VSS_TAP_POINT_STREAM_END : Rx tap point is at the end of the stream.
++        */
++       uint32_t tx_tap_point;
++       /* Tap point to use on the Tx path. Supported values are:
++        * VSS_TAP_POINT_NONE : Do not record tx path.
++        * VSS_TAP_POINT_STREAM_END : Tx tap point is at the end of the stream.
++        */
++} __attribute__((packed));
++
++
+ struct cvs_create_passive_ctl_session_cmd {
+ 	struct apr_hdr hdr;
+ 	struct vss_istream_cmd_create_passive_control_session_t cvs_session;
+@@ -397,7 +423,7 @@
+ struct cvs_create_full_ctl_session_cmd {
+ 	struct apr_hdr hdr;
+ 	struct vss_istream_cmd_create_full_control_session_t cvs_session;
+-};
++} __attribute__((packed));
+ 
+ struct cvs_destroy_session_cmd {
+ 	struct apr_hdr hdr;
+@@ -442,6 +468,12 @@
+ 	struct vss_istream_cmd_set_enc_dtx_mode_t dtx_mode;
+ } __attribute__((packed));
+ 
++struct cvs_start_record_cmd {
++               struct apr_hdr hdr;
++               struct vss_istream_cmd_start_record_t rec_mode;
++} __attribute__((packed));
++
++
+ /* TO CVP commands */
+ 
+ #define VSS_IVOCPROC_CMD_CREATE_FULL_CONTROL_SESSION	0x000100C3
+@@ -613,4 +645,6 @@
+ 			  uint32_t rate,
+ 			  uint32_t network_type);
+ 
++int voice_start_record(uint32_t rec_mode, uint32_t set);
++
+ #endif
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/include/mach/restart.h pyramid/arch/arm/mach-msm/include/mach/restart.h
+--- pyramid_CRC/arch/arm/mach-msm/include/mach/restart.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/include/mach/restart.h	2011-07-31 15:53:06.000000000 +0400
+@@ -62,7 +62,7 @@
+ };
+ 
+ void set_ramdump_reason(const char *msg);
+-inline void soc_restart(char mode, const char *msg);
++/* inline */ void soc_restart(char mode, const char *msg);
+ inline void notify_modem_cache_flush_done(void);
+ int check_in_panic(void);
+ #endif
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/Makefile pyramid/arch/arm/mach-msm/Makefile
+--- pyramid_CRC/arch/arm/mach-msm/Makefile	2011-07-20 10:13:34.000000000 +0400
++++ pyramid/arch/arm/mach-msm/Makefile	2011-07-31 16:40:28.000000000 +0400
+@@ -61,9 +61,9 @@
+ quiet_cmd_mkrpcsym = MKCAP   $@
+ 	cmd_mkrpcsym = $(PERL) $(srctree)/$(src)/mkrpcsym.pl $< $@
+ 
+-target += smd_rpc_sym.c
+-$(obj)/smd_rpc_sym.c: $(src)/smd_rpc_sym $(src)/mkrpcsym.pl
+-	$(call if_changed,mkrpcsym)
++#target += smd_rpc_sym.c
++#$(obj)/smd_rpc_sym.c: $(src)/smd_rpc_sym $(src)/mkrpcsym.pl
++#	$(call if_changed,mkrpcsym)
+ 
+ obj-y += modem_notifier.o
+ obj-$(CONFIG_MSM_SMD_LOGGING) += smem_log-8x60.o
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/msm_ddr_regs-8x60.inc pyramid/arch/arm/mach-msm/msm_ddr_regs-8x60.inc
+--- pyramid_CRC/arch/arm/mach-msm/msm_ddr_regs-8x60.inc	1970-01-01 03:00:00.000000000 +0300
++++ pyramid/arch/arm/mach-msm/msm_ddr_regs-8x60.inc	2011-07-31 16:08:55.000000000 +0400
+@@ -0,0 +1,45 @@
++REG(DDR_DEVICE_CONFIG),
++REG(DDR_DEVICE_STATUS),
++REG(DDR_MANUAL_CMD),
++REG(DDR_MR_CNTL_WDATA),
++REG(DDR_MR_RDATA_RANK0),
++REG(DDR_MR_RDATA_RANK1),
++REG(DDR_MRR_REPEAT),
++REG(DDR_MRR_REPEAT_DATA_RANK0),
++REG(DDR_MRR_REPEAT_DATA_RANK1),
++REG(DDR_CMD_EXEC_OPT_0),
++REG(DDR_CMD_EXEC_OPT_1),
++REG(DDR_CMD_EXEC_OPT_2),
++REG(DDR_CMD_EXEC_OPT_3),
++REG(DDR_SM_TIMING_0),
++REG(DDR_SM_TIMING_1),
++REG(DDR_DRAM_TIMING_0),
++REG(DDR_DRAM_TIMING_1),
++REG(DDR_DRAM_TIMING_2),
++REG(DDR_DRAM_TIMING_3),
++REG(DDR_DRAM_TIMING_4),
++REG(DDR_DRAM_TIMING_5),
++REG(DDR_DRAM_TIMING_6),
++REG(DDR_DRAM_TIMING_7),
++REG(DDR_DRAM_TIMING_0_ALT),
++REG(DDR_DRAM_TIMING_3_ALT),
++REG(DDR_DRAM_TIMING_4_ALT),
++REG(DDR_DRAM_TIMING_5_ALT),
++REG(DDR_DRAM_TIMING_7_ALT),
++REG(DDR_AUTO_RFSH_CNTL),
++REG(DDR_SELF_RFSH_CNTL),
++REG(DDR_PMON_EVENT_CNTL0),
++REG(DDR_PMON_EVENT0_MID_MATCH),
++REG(DDR_PMON_EVENT_CNTL1),
++REG(DDR_PMON_EVENT1_MID_MATCH),
++REG(DDR_PMON_EVENT_CNTL2),
++REG(DDR_PMON_EVENT2_MID_MATCH),
++REG(DDR_PMON_EVENT_CNTL3),
++REG(DDR_PMON_EVENT3_MID_MATCH),
++REG(DDR_PMON_EVENT_CNTL4),
++REG(DDR_PMON_EVENT_CNTL5),
++REG(DDR_TEST_MUX),
++
++
++
++
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/audio_dev_ctl.c pyramid/arch/arm/mach-msm/qdsp6v2/audio_dev_ctl.c
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/audio_dev_ctl.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/audio_dev_ctl.c	2011-08-12 15:58:44.000000000 +0400
+@@ -27,6 +27,8 @@
+ #include <mach/qdsp6v2/audio_dev_ctl.h>
+ #include <mach/debug_mm.h>
+ #include <mach/qdsp6v2/apr_audio.h>
++#include <mach/qdsp6v2/q6afe.h>
++#include <mach/qdsp6v2/q6voice.h>
+ #include "q6adm.h"
+ 
+ #ifndef MAX
+@@ -131,16 +133,19 @@
+ int msm_set_copp_id(int session_id, int copp_id)
+ {
+ 	int rc = 0;
++        int index;
+ 
+ 	if (session_id < 1 || session_id > 8)
+ 		return -EINVAL;
+-	if (copp_id < 0 || copp_id > AFE_MAX_PORTS)
++        if (afe_validate_port(copp_id) < 0)
+ 		return -EINVAL;
++
++	index = afe_get_port_index(copp_id);
+ 	pr_debug("%s: session[%d] copp_id[%d]\n", __func__, session_id,
+ 						copp_id);
+ 	mutex_lock(&routing_info.copp_list_mutex);
+-	if (routing_info.copp_list[session_id][copp_id] == DEVICE_IGNORE)
+-		routing_info.copp_list[session_id][copp_id] = copp_id;
++	if (routing_info.copp_list[session_id][index] == DEVICE_IGNORE)
++		routing_info.copp_list[session_id][index] = copp_id;
+ 	mutex_unlock(&routing_info.copp_list_mutex);
+ 
+ 	return rc;
+@@ -150,13 +155,15 @@
+ int msm_clear_copp_id(int session_id, int copp_id)
+ {
+ 	int rc = 0;
++	int index = afe_get_port_index(copp_id);
++
+ 	if (session_id < 1 || session_id > 8)
+ 		return -EINVAL;
+ 	pr_debug("%s: session[%d] copp_id[%d]\n", __func__, session_id,
+ 						copp_id);
+ 	mutex_lock(&routing_info.copp_list_mutex);
+-	if (routing_info.copp_list[session_id][copp_id] == copp_id)
+-		routing_info.copp_list[session_id][copp_id] = DEVICE_IGNORE;
++	if (routing_info.copp_list[session_id][index] == copp_id)
++		routing_info.copp_list[session_id][index] = DEVICE_IGNORE;
+ 	mutex_unlock(&routing_info.copp_list_mutex);
+ 
+ 	return rc;
+@@ -332,13 +339,21 @@
+ 
+ 	mutex_lock(&routing_info.adm_mutex);
+ 	if (set) {
+-		rc = adm_open(copp_id, popp_id, PLAYBACK, rate, mode,
++		rc = adm_open(copp_id, PLAYBACK, rate, mode,
+ 			DEFAULT_COPP_TOPOLOGY);
+ 		if (rc < 0) {
+ 			pr_aud_err("%s: adm open fail rc[%d]\n", __func__, rc);
+ 			rc = -EINVAL;
+ 			goto fail_cmd;
+ 		}
++
++                rc = adm_matrix_map(popp_id, PLAYBACK, 1, &copp_id);
++                if (rc < 0) {
++                        pr_err("%s: matrix map failed rc[%d]\n", __func__, rc);
++                        adm_close(copp_id);
++                        rc = -EINVAL;
++                        goto fail_cmd;
++                }
+ 		msm_set_copp_id(popp_id, copp_id);
+ 	} else {
+ 		for (i = 0; i < AFE_MAX_PORTS; i++) {
+@@ -458,13 +473,20 @@
+ 			rate = 16000;
+ 		}
+ 		mutex_unlock(&adm_tx_topology_tbl.lock);
+-		rc = adm_open(copp_id, popp_id, LIVE_RECORDING, rate, mode,
+-			topology);
++		rc = adm_open(copp_id, LIVE_RECORDING, rate, mode, topology);
+ 		if (rc < 0) {
+ 			pr_aud_err("%s: adm open fail rc[%d]\n", __func__, rc);
+ 			rc = -EINVAL;
+ 			goto fail_cmd;
+ 		}
++
++                rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1, &copp_id);
++                if (rc < 0) {
++                        pr_err("%s: matrix map failed rc[%d]\n", __func__, rc);
++                        adm_close(copp_id);
++                        rc = -EINVAL;
++                        goto fail_cmd;
++                }
+ 		msm_set_copp_id(popp_id, copp_id);
+ 	} else {
+ 		for (i = 0; i < AFE_MAX_PORTS; i++) {
+@@ -567,10 +589,8 @@
+ 
+ int msm_get_voc_freq(int *tx_freq, int *rx_freq)
+ {
+-	*tx_freq = (0 == voc_tx_freq ? routing_info.voice_tx_sample_rate
+-				: voc_tx_freq);
+-	*rx_freq = (0 == voc_rx_freq ? routing_info.voice_rx_sample_rate
+-				: voc_rx_freq);
++	*tx_freq = (0 == voc_tx_freq ? routing_info.voice_tx_sample_rate : voc_tx_freq);
++	*rx_freq = (0 == voc_rx_freq ? routing_info.voice_rx_sample_rate : voc_rx_freq);
+ 	return 0;
+ }
+ EXPORT_SYMBOL(msm_get_voc_freq);
+@@ -914,6 +934,232 @@
+ }
+ EXPORT_SYMBOL(msm_snddev_enable_sidetone);
+ 
++int msm_enable_incall_recording(int popp_id, int rec_mode, int rate,
++                               int channel_mode)
++{
++       int rc = 0;
++       int port_id[2];
++       port_id[0] = VOICE_RECORD_TX;
++       port_id[1] = VOICE_RECORD_RX;
++
++       pr_debug("%s: popp_id %d, rec_mode %d, rate %d, channel_mode %d\n",
++                __func__, popp_id, rec_mode, rate, channel_mode);
++
++       mutex_lock(&routing_info.adm_mutex);
++
++       if (rec_mode == VOC_REC_UPLINK) {
++               rc = afe_start_pseudo_port(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Tx pseudo port start\n",
++                              __func__, rc);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_open(port_id[0], LIVE_RECORDING, rate, channel_mode,
++                               DEFAULT_COPP_TOPOLOGY);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM open %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1, &port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM matrix map %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               msm_set_copp_id(popp_id, port_id[0]);
++
++       } else if (rec_mode == VOC_REC_DOWNLINK) {
++               rc = afe_start_pseudo_port(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Rx pseudo port start\n",
++                              __func__, rc);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_open(port_id[1], LIVE_RECORDING, rate, channel_mode,
++                               DEFAULT_COPP_TOPOLOGY);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM open %d\n",
++                              __func__, rc, port_id[1]);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_matrix_map(popp_id, LIVE_RECORDING, 1, &port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM matrix map %d\n",
++                              __func__, rc, port_id[1]);
++
++                       goto fail_cmd;
++               }
++
++               msm_set_copp_id(popp_id, port_id[1]);
++
++       } else if (rec_mode == VOC_REC_BOTH) {
++               rc = afe_start_pseudo_port(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Tx pseudo port start\n",
++                              __func__, rc);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_open(port_id[0], LIVE_RECORDING, rate, channel_mode,
++                               DEFAULT_COPP_TOPOLOGY);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM open %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               msm_set_copp_id(popp_id, port_id[0]);
++
++               rc = afe_start_pseudo_port(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Rx pseudo port start\n",
++                              __func__, rc);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_open(port_id[1], LIVE_RECORDING, rate, channel_mode,
++                               DEFAULT_COPP_TOPOLOGY);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM open %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               rc = adm_matrix_map(popp_id, LIVE_RECORDING, 2, &port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM matrix map\n",
++                              __func__, rc);
++
++                       goto fail_cmd;
++               }
++
++               msm_set_copp_id(popp_id, port_id[1]);
++       } else {
++               pr_err("%s Unknown rec_mode %d\n", __func__, rec_mode);
++
++               goto fail_cmd;
++       }
++
++       rc = voice_start_record(rec_mode, 1);
++
++fail_cmd:
++       mutex_unlock(&routing_info.adm_mutex);
++       return rc;
++}
++
++int msm_disable_incall_recording(uint32_t popp_id, uint32_t rec_mode)
++{
++       int rc = 0;
++       uint32_t port_id[2];
++       port_id[0] = VOICE_RECORD_TX;
++       port_id[1] = VOICE_RECORD_RX;
++
++       pr_debug("%s: popp_id %d, rec_mode %d\n", __func__, popp_id, rec_mode);
++
++       mutex_lock(&routing_info.adm_mutex);
++
++       rc = voice_start_record(rec_mode, 0);
++       if (rc < 0) {
++               pr_err("%s: Error %d stopping record\n", __func__, rc);
++
++               goto fail_cmd;
++       }
++
++       if (rec_mode == VOC_REC_UPLINK) {
++               rc = adm_close(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM close %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               msm_clear_copp_id(popp_id, port_id[0]);
++
++               rc = afe_stop_pseudo_port(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Tx pseudo port stop\n",
++                              __func__, rc);
++                       goto fail_cmd;
++               }
++
++       } else if (rec_mode == VOC_REC_DOWNLINK) {
++               rc = adm_close(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM close %d\n",
++                              __func__, rc, port_id[1]);
++
++                       goto fail_cmd;
++               }
++
++               msm_clear_copp_id(popp_id, port_id[1]);
++
++               rc = afe_stop_pseudo_port(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Rx pseudo port stop\n",
++                              __func__, rc);
++                       goto fail_cmd;
++               }
++       } else if (rec_mode == VOC_REC_BOTH) {
++               rc = adm_close(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM close %d\n",
++                              __func__, rc, port_id[0]);
++
++                       goto fail_cmd;
++               }
++
++               msm_clear_copp_id(popp_id, port_id[0]);
++
++               rc = afe_stop_pseudo_port(port_id[0]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Tx pseudo port stop\n",
++                              __func__, rc);
++                       goto fail_cmd;
++               }
++
++               rc = adm_close(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in ADM close %d\n",
++                              __func__, rc, port_id[1]);
++
++                       goto fail_cmd;
++               }
++
++               msm_clear_copp_id(popp_id, port_id[1]);
++
++               rc = afe_stop_pseudo_port(port_id[1]);
++               if (rc < 0) {
++                       pr_err("%s: Error %d in Rx pseudo port stop\n",
++                              __func__, rc);
++                       goto fail_cmd;
++               }
++       } else {
++               pr_err("%s Unknown rec_mode %d\n", __func__, rec_mode);
++
++               goto fail_cmd;
++       }
++
++fail_cmd:
++       mutex_unlock(&routing_info.adm_mutex);
++       return rc;
++}
++
+ static int audio_dev_ctrl_ioctl(struct inode *inode, struct file *file,
+ 	unsigned int cmd, unsigned long arg)
+ {
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/pcm_in.c pyramid/arch/arm/mach-msm/qdsp6v2/pcm_in.c
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/pcm_in.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/pcm_in.c	2011-08-12 13:42:53.000000000 +0400
+@@ -36,6 +36,8 @@
+ #define BUFFER_SIZE_MULTIPLE 4
+ #define MIN_BUFFER_SIZE 160
+ 
++#define VOC_REC_NONE 0xFF
++
+ struct pcm {
+ 	struct mutex lock;
+ 	struct mutex read_lock;
+@@ -175,6 +177,11 @@
+ 			q6asm_read(pcm->ac);
+ 		pr_info("%s: AUDIO_START session id[%d]\n", __func__,
+ 							pcm->ac->session);
++
++                if (pcm->rec_mode != VOC_REC_NONE)
++                        msm_enable_incall_recording(pcm->ac->session,
++                        pcm->rec_mode, pcm->sample_rate, pcm->channel_count);
++
+ 		break;
+ 	}
+ 	case AUDIO_GET_SESSION_ID: {
+@@ -256,6 +263,30 @@
+ 		break;
+ 	}
+ 
++        case AUDIO_SET_INCALL: {
++                if (copy_from_user(&pcm->rec_mode,
++                                   (void *) arg,
++                                   sizeof(pcm->rec_mode))) {
++                        rc = -EFAULT;
++                        pr_err("%s: Error copying in-call mode\n", __func__);
++                        break;
++                }
++
++                if (pcm->rec_mode != VOC_REC_UPLINK &&
++                    pcm->rec_mode != VOC_REC_DOWNLINK &&
++                    pcm->rec_mode != VOC_REC_BOTH) {
++                        rc = -EINVAL;
++                        pcm->rec_mode = VOC_REC_NONE;
++
++                        pr_err("%s: Invalid %d in-call rec_mode\n",
++                               __func__, pcm->rec_mode);
++                        break;
++                }
++
++                pr_debug("%s: In-call rec_mode %d\n", __func__, pcm->rec_mode);
++                break;
++        }
++
+ 	default:
+ 		rc = -EINVAL;
+ 		break;
+@@ -302,6 +333,9 @@
+ 	atomic_set(&pcm->in_enabled, 0);
+ 	atomic_set(&pcm->in_count, 0);
+ 	atomic_set(&pcm->in_opened, 1);
++
++	pcm->rec_mode = VOC_REC_NONE;
++
+ 	file->private_data = pcm;
+ 	getnstimeofday(&ts);
+ 	rtc_time_to_tm(ts.tv_sec, &tm);
+@@ -396,6 +430,11 @@
+ 	}
+ 	if (pcm->ac) {
+ 		mutex_lock(&pcm->lock);
++	        if ((pcm->rec_mode != VOC_REC_NONE) && atomic_read(&pcm->in_enabled)) {
++        	        msm_disable_incall_recording(pcm->ac->session, pcm->rec_mode);
++	                pcm->rec_mode = VOC_REC_NONE;
++	        }
++
+ 		/* remove this session from topology list */
+ 		auddev_cfg_tx_copp_topology(pcm->ac->session,
+ 				DEFAULT_COPP_TOPOLOGY);
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6adm.c pyramid/arch/arm/mach-msm/qdsp6v2/q6adm.c
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6adm.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/q6adm.c	2011-08-12 15:48:28.000000000 +0400
+@@ -21,6 +21,7 @@
+ #include <linux/jiffies.h>
+ #include <asm/atomic.h>
+ #include <mach/qdsp6v2/apr_audio.h>
++#include <mach/qdsp6v2/q6afe.h>
+ #include "audio_acdb.h"
+ 
+ #define TIMEOUT_MS 1000
+@@ -40,12 +41,17 @@
+ static int32_t adm_callback(struct apr_client_data *data, void *priv)
+ {
+ 	uint32_t *payload;
++	int index;
+ 	payload = data->payload;
+ 	pr_debug("%s: code = 0x%x %x %x size = %d\n", __func__,
+ 			data->opcode, payload[0], payload[1],
+ 					data->payload_size);
+ 
+ 	if (data->payload_size) {
++                index = afe_get_port_index(data->token);
++                pr_debug("%s: Port ID %d, index %d\n", __func__,
++                        data->token, index);
++		
+ 		if (data->opcode == APR_BASIC_RSP_RESULT) {
+ 			switch (payload[0]) {
+ 			case ADM_CMD_COPP_CLOSE:
+@@ -55,8 +61,7 @@
+ 			case ADM_CMD_MEMORY_UNMAP_REGIONS:
+ 			case ADM_CMD_MATRIX_MAP_ROUTINGS:
+ 			case ADM_CMD_SET_PARAMS:
+-				atomic_set(&this_adm.copp_stat[data->token],
+-									1);
++				atomic_set(&this_adm.copp_stat[index], 1);
+ 				wake_up(&this_adm.wait);
+ 				break;
+ 			default:
+@@ -70,9 +75,8 @@
+ 		switch (data->opcode) {
+ 		case ADM_CMDRSP_COPP_OPEN: {
+ 			struct adm_copp_open_respond *open = data->payload;
+-			atomic_set(&this_adm.copp_id[data->token],
+-							open->copp_id);
+-			atomic_set(&this_adm.copp_stat[data->token], 1);
++			atomic_set(&this_adm.copp_id[index],open->copp_id);
++			atomic_set(&this_adm.copp_stat[index], 1);
+ 			pr_debug("%s: coppid rxed=%d\n", __func__,
+ 							open->copp_id);
+ 			wake_up(&this_adm.wait);
+@@ -91,6 +95,8 @@
+ {
+ 	s32				result;
+ 	struct adm_set_params_command	adm_params;
++	int index = afe_get_port_index(port_id);
++
+ 	pr_debug("%s: Port id %d\n", __func__, port_id);
+ 
+ 	if (!aud_cal || aud_cal->cal_size == 0) {
+@@ -107,13 +113,13 @@
+ 	adm_params.hdr.src_port = port_id;
+ 	adm_params.hdr.dest_svc = APR_SVC_ADM;
+ 	adm_params.hdr.dest_domain = APR_DOMAIN_ADSP;
+-	adm_params.hdr.dest_port = atomic_read(&this_adm.copp_id[port_id]);
++	adm_params.hdr.dest_port = atomic_read(&this_adm.copp_id[index]);
+ 	adm_params.hdr.token = port_id;
+ 	adm_params.hdr.opcode = ADM_CMD_SET_PARAMS;
+ 	adm_params.payload = aud_cal->cal_paddr;
+ 	adm_params.payload_size = aud_cal->cal_size;
+ 
+-	atomic_set(&this_adm.copp_stat[port_id], 0);
++	atomic_set(&this_adm.copp_stat[index], 0);
+ 	pr_debug("%s: Sending SET_PARAMS payload = 0x%x, size = %d\n",
+ 		__func__, adm_params.payload, adm_params.payload_size);
+ 	result = apr_send_pkt(this_adm.apr, (uint32_t *)&adm_params);
+@@ -124,7 +130,7 @@
+ 	}
+ 	/* Wait for the callback */
+ 	result = wait_event_timeout(this_adm.wait,
+-		atomic_read(&this_adm.copp_stat[port_id]),
++		atomic_read(&this_adm.copp_stat[index]),
+ 		msecs_to_jiffies(TIMEOUT_MS));
+ 	if (!result)
+ 		pr_aud_err("%s: Set params timed out port = %d, payload = 0x%x\n",
+@@ -160,28 +166,29 @@
+ 	return;
+ }
+ 
+-int adm_open(int port_id, int session_id , int path,
+-				int rate, int channel_mode,
+-				int topology)
++
++int adm_open(int port_id, int path, int rate, int channel_mode, int topology)
+ {
+ 	struct adm_copp_open_command	open;
+-	struct adm_routings_command	route;
+ 	int ret = 0;
++        int index;
+ 
+-	pr_debug("%s: port %d session 0x%x path:%d rate:%d mode:%d\n", __func__,
+-				port_id, session_id, path, rate, channel_mode);
++        pr_debug("%s: port %d path:%d rate:%d mode:%d\n", __func__,
++                                port_id, path, rate, channel_mode);
+ 
+-	if (port_id >= AFE_MAX_PORTS) {
+-		pr_aud_err("%s port idi[%d] out of limit[%d]\n", __func__,
+-						port_id, AFE_MAX_PORTS);
++        if (afe_validate_port(port_id) < 0) {
++                pr_err("%s port idi[%d] is invalid\n", __func__, port_id);
+ 		return -ENODEV;
+ 	}
+ 
++        index = afe_get_port_index(port_id);
++        pr_debug("%s: Port ID %d, index %d\n", __func__, port_id, index);
++
+ 	if (this_adm.apr == NULL) {
+ 		this_adm.apr = apr_register("ADSP", "ADM", adm_callback,
+ 						0xFFFFFFFF, &this_adm);
+ 		if (this_adm.apr == NULL) {
+-			pr_aud_err("%s: Unable to register ADM\n", __func__);
++                        pr_err("%s: Unable to register ADM\n", __func__);
+ 			ret = -ENODEV;
+ 			return ret;
+ 		}
+@@ -189,7 +196,7 @@
+ 
+ 
+ 	/* Create a COPP if port id are not enabled */
+-	if (atomic_read(&this_adm.copp_cnt[port_id]) == 0) {
++        if (atomic_read(&this_adm.copp_cnt[index]) == 0) {
+ 
+ 		open.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+ 				APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+@@ -204,7 +211,7 @@
+ 		open.hdr.opcode = ADM_CMD_COPP_OPEN;
+ 
+ 		open.mode = path;
+-		open.endpoint_id1 = port_id & 0x00FF;
++                open.endpoint_id1 = port_id;
+ 		open.endpoint_id2 = 0xFFFF;
+ 		open.topology_id  = topology;
+ 
+@@ -216,43 +223,69 @@
+ 			open.endpoint_id1, open.rate,\
+ 			open.topology_id);
+ 
+-		atomic_set(&this_adm.copp_stat[port_id], 0);
++                atomic_set(&this_adm.copp_stat[index], 0);
+ 
+ 		ret = apr_send_pkt(this_adm.apr, (uint32_t *)&open);
+ 		if (ret < 0) {
+-			pr_aud_err("%s:ADM enable for port %d failed\n",
++                        pr_err("%s:ADM enable for port %d failed\n",
+ 						__func__, port_id);
+ 			ret = -EINVAL;
+ 			goto fail_cmd;
+ 		}
+ 		/* Wait for the callback with copp id */
+ 		ret = wait_event_timeout(this_adm.wait,
+-			atomic_read(&this_adm.copp_stat[port_id]),
++                        atomic_read(&this_adm.copp_stat[index]),
+ 			msecs_to_jiffies(TIMEOUT_MS));
+ 		if (!ret) {
+-			pr_aud_err("%s ADM open failed for port %d\n", __func__,
++                        pr_err("%s ADM open failed for port %d\n", __func__,
+ 								port_id);
+ 			ret = -EINVAL;
+ 			goto fail_cmd;
+ 		}
+ 	}
+-	atomic_inc(&this_adm.copp_cnt[port_id]);
++        atomic_inc(&this_adm.copp_cnt[index]);
++        return 0;
++
++fail_cmd:
++
++        return ret;
++}
++
++int adm_matrix_map(int session_id, int path, int num_copps, int *port_id)
++{
++        struct adm_routings_command     route;
++        int ret = 0, i = 0;
++        /* Assumes port_ids have already been validated during adm_open */
++        int index = afe_get_port_index(port_id[0]);
++
++        pr_debug("%s: session 0x%x path:%d num_copps:%d port_id[0]:%d\n",
++                 __func__, session_id, path, num_copps, port_id[0]);
++
+ 	route.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+ 				APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+ 	route.hdr.pkt_size = sizeof(route);
+ 	route.hdr.src_svc = 0;
+ 	route.hdr.src_domain = APR_DOMAIN_APPS;
+-	route.hdr.src_port = port_id;
++        route.hdr.src_port = port_id[0];
+ 	route.hdr.dest_svc = APR_SVC_ADM;
+ 	route.hdr.dest_domain = APR_DOMAIN_ADSP;
+-	route.hdr.dest_port = atomic_read(&this_adm.copp_id[port_id]);
+-	route.hdr.token = port_id;
++        route.hdr.dest_port = atomic_read(&this_adm.copp_id[index]);
++        route.hdr.token = port_id[0];
+ 	route.hdr.opcode = ADM_CMD_MATRIX_MAP_ROUTINGS;
+ 	route.num_sessions = 1;
+ 	route.sessions[0].id = session_id;
+-	route.sessions[0].num_copps = 1;
+-	route.sessions[0].copp_id[0] =
+-			atomic_read(&this_adm.copp_id[port_id]);
++        route.sessions[0].num_copps = num_copps;
++
++        for (i = 0; i < num_copps; i++) {
++                int tmp;
++                tmp = afe_get_port_index(port_id[i]);
++
++                pr_debug("%s: port_id[%d]: %d, index: %d\n", __func__, i,
++                         port_id[i], tmp);
++
++                route.sessions[0].copp_id[i] =
++                                        atomic_read(&this_adm.copp_id[tmp]);
++        }
+ 
+ 	switch (path) {
+ 	case 0x1:
+@@ -263,28 +296,31 @@
+ 		route.path = AUDIO_TX;
+ 		break;
+ 	default:
+-		pr_aud_err("%s: Wrong path set[%d]\n", __func__, path);
++                pr_err("%s: Wrong path set[%d]\n", __func__, path);
+ 		break;
+ 	}
+-	atomic_set(&this_adm.copp_stat[port_id], 0);
++        atomic_set(&this_adm.copp_stat[index], 0);
+ 
+ 	ret = apr_send_pkt(this_adm.apr, (uint32_t *)&route);
+ 	if (ret < 0) {
+-		pr_aud_err("%s: ADM routing for port %d failed\n",
+-					__func__, port_id);
++                pr_err("%s: ADM routing for port %d failed\n",
++                                        __func__, port_id[0]);
+ 		ret = -EINVAL;
+ 		goto fail_cmd;
+ 	}
+ 	ret = wait_event_timeout(this_adm.wait,
+-				atomic_read(&this_adm.copp_stat[port_id]),
++                                atomic_read(&this_adm.copp_stat[index]),
+ 				msecs_to_jiffies(TIMEOUT_MS));
+ 	if (!ret) {
+-		pr_aud_err("%s: ADM cmd Route failed for port %d\n",
+-					__func__, port_id);
++                pr_err("%s: ADM cmd Route failed for port %d\n",
++                                        __func__, port_id[0]);
+ 		ret = -EINVAL;
+ 		goto fail_cmd;
+ 	}
+-	send_adm_cal(port_id, path);
++
++        for (i = 0; i < num_copps; i++)
++                send_adm_cal(port_id[i], path);
++
+ 	return 0;
+ 
+ fail_cmd:
+@@ -292,6 +328,8 @@
+ 	return ret;
+ }
+ 
++
++
+ int adm_memory_map_regions(uint32_t *buf_add, uint32_t mempool_id,
+ 				uint32_t *bufsz, uint32_t bufcnt)
+ {
+@@ -432,16 +470,17 @@
+ 	struct apr_hdr close;
+ 
+ 	int ret = 0;
++        int index = afe_get_port_index(port_id);
+ 
+ 	pr_debug("%s port_id=%d\n", __func__, port_id);
+ 
+-	if (!(atomic_read(&this_adm.copp_cnt[port_id]))) {
++	if (!(atomic_read(&this_adm.copp_cnt[index]))) {
+ 		pr_aud_err("%s: copp count for port[%d]is 0\n", __func__, port_id);
+ 
+ 		goto fail_cmd;
+ 	}
+-	atomic_dec(&this_adm.copp_cnt[port_id]);
+-	if (!(atomic_read(&this_adm.copp_cnt[port_id]))) {
++	atomic_dec(&this_adm.copp_cnt[index]);
++	if (!(atomic_read(&this_adm.copp_cnt[index]))) {
+ 
+ 		close.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+ 			APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+@@ -451,19 +490,19 @@
+ 		close.src_port = port_id;
+ 		close.dest_svc = APR_SVC_ADM;
+ 		close.dest_domain = APR_DOMAIN_ADSP;
+-		close.dest_port = atomic_read(&this_adm.copp_id[port_id]);
++		close.dest_port = atomic_read(&this_adm.copp_id[index]);
+ 		close.token = port_id;
+ 		close.opcode = ADM_CMD_COPP_CLOSE;
+ 
+-		atomic_set(&this_adm.copp_id[port_id], 0);
+-		atomic_set(&this_adm.copp_stat[port_id], 0);
++		atomic_set(&this_adm.copp_id[index], 0);
++		atomic_set(&this_adm.copp_stat[index], 0);
+ 
+ 
+ 		pr_debug("%s:coppid %d portid=%d coppcnt=%d\n",
+ 				__func__,
+-				atomic_read(&this_adm.copp_id[port_id]),
++				atomic_read(&this_adm.copp_id[index]),
+ 				port_id,
+-				atomic_read(&this_adm.copp_cnt[port_id]));
++				atomic_read(&this_adm.copp_cnt[index]));
+ 
+ 		ret = apr_send_pkt(this_adm.apr, (uint32_t *)&close);
+ 		if (ret < 0) {
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6adm.h pyramid/arch/arm/mach-msm/qdsp6v2/q6adm.h
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6adm.h	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/q6adm.h	2011-08-12 16:01:07.000000000 +0400
+@@ -28,8 +28,7 @@
+ #ifndef __Q6_ADM_H__
+ #define __Q6_ADM_H__
+ 
+-int adm_open(int port, int session, int path,
+-				int rate, int mode, int topology);
++int adm_open(int port, int path, int rate, int mode, int topology);
+ 
+ int adm_memory_map_regions(uint32_t *buf_add, uint32_t mempool_id,
+ 				uint32_t *bufsz, uint32_t bufcnt);
+@@ -39,4 +38,6 @@
+ 
+ int adm_close(int port);
+ 
++int adm_matrix_map(int session_id, int path, int num_copps, int *port_id);
++
+ #endif /* __Q6_ADM_H__ */
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6afe.c pyramid/arch/arm/mach-msm/qdsp6v2/q6afe.c
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6afe.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/q6afe.c	2011-08-12 16:23:17.000000000 +0400
+@@ -22,6 +22,7 @@
+ #include <linux/wait.h>
+ #include <linux/jiffies.h>
+ #include <mach/qdsp6v2/apr_audio.h>
++#include <mach/qdsp6v2/q6afe.h>
+ 
+ struct afe_ctl {
+ 	void *apr;
+@@ -32,6 +33,8 @@
+ static struct afe_ctl this_afe;
+ 
+ #define TIMEOUT_MS 1000
++#define Q6AFE_MAX_VOLUME 0x3FFF
++
+ 
+ static int32_t afe_callback(struct apr_client_data *data, void *priv)
+ {
+@@ -47,6 +50,9 @@
+ 			case AFE_PORT_CMD_START:
+ 			case AFE_PORT_CMD_LOOPBACK:
+ 			case AFE_PORT_CMD_SIDETONE_CTL:
++        //                case AFE_PORT_CMD_SET_PARAM:
++			case AFE_PSEUDOPORT_CMD_START:
++			case AFE_PSEUDOPORT_CMD_STOP:
+ 				atomic_set(&this_afe.state, 0);
+ 				wake_up(&this_afe.wait);
+ 				break;
+@@ -60,6 +66,60 @@
+ 	return 0;
+ }
+ 
++int afe_validate_port(u16 port_id)
++{
++        int ret;
++
++        switch (port_id) {
++        case PRIMARY_I2S_RX:
++        case PRIMARY_I2S_TX:
++        case PCM_RX:
++        case PCM_TX:
++        case SECONDARY_I2S_RX:
++        case SECONDARY_I2S_TX:
++        case MI2S_RX:
++        case MI2S_TX:
++        case HDMI_RX:
++        case RSVD_2:
++        case RSVD_3:
++        case DIGI_MIC_TX:
++        case VOICE_RECORD_RX:
++        case VOICE_RECORD_TX:
++        case VOICE_PLAYBACK_TX:
++        {
++                ret = 0;
++                break;
++        }
++
++        default:
++                ret = -EINVAL;
++        }
++
++        return ret;
++}
++
++int afe_get_port_index(u16 port_id)
++{
++        switch (port_id) {
++        case PRIMARY_I2S_RX: return IDX_PRIMARY_I2S_RX;
++        case PRIMARY_I2S_TX: return IDX_PRIMARY_I2S_TX;
++        case PCM_RX: return IDX_PCM_RX;
++        case PCM_TX: return IDX_PCM_TX;
++        case SECONDARY_I2S_RX: return IDX_SECONDARY_I2S_RX;
++        case SECONDARY_I2S_TX: return IDX_SECONDARY_I2S_TX;
++        case MI2S_RX: return IDX_MI2S_RX;
++        case MI2S_TX: return IDX_MI2S_TX;
++        case HDMI_RX: return IDX_HDMI_RX;
++        case RSVD_2: return IDX_RSVD_2;
++        case RSVD_3: return IDX_RSVD_3;
++        case DIGI_MIC_TX: return IDX_DIGI_MIC_TX;
++        case VOICE_RECORD_RX: return IDX_VOICE_RECORD_RX;
++        case VOICE_RECORD_TX: return IDX_VOICE_RECORD_TX;
++        case VOICE_PLAYBACK_TX: return IDX_VOICE_PLAYBACK_TX;
++        default: return -EINVAL;
++        }
++}
++
+ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
+ {
+ 	struct afe_port_start_command start;
+@@ -93,7 +153,7 @@
+ 	config.hdr.token = 0;
+ 	config.hdr.opcode = AFE_PORT_AUDIO_IF_CONFIG;
+ 
+-	if (port_id >= AFE_MAX_PORTS) {
++	if (afe_validate_port(port_id) < 0) {
+ 
+ 		pr_aud_err("%s: Failed : Invalid Port id = %d\n", __func__,
+ 				port_id);
+@@ -194,6 +254,98 @@
+ 	return ret;
+ }
+ 
++int afe_start_pseudo_port(u16 port_id)
++{
++        int ret = 0;
++        struct afe_pseudoport_start_command start;
++
++        pr_info("%s: port_id=%d\n", __func__, port_id);
++
++        if (this_afe.apr == NULL) {
++                this_afe.apr = apr_register("ADSP", "AFE", afe_callback,
++                                        0xFFFFFFFF, &this_afe);
++                pr_info("%s: Register AFE\n", __func__);
++                if (this_afe.apr == NULL) {
++                        pr_err("%s: Unable to register AFE\n", __func__);
++                        ret = -ENODEV;
++                        return ret;
++                }
++        }
++
++        start.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
++                                APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
++        start.hdr.pkt_size = sizeof(start);
++        start.hdr.src_port = 0;
++        start.hdr.dest_port = 0;
++        start.hdr.token = 0;
++        start.hdr.opcode = AFE_PSEUDOPORT_CMD_START;
++        start.port_id = port_id;
++        start.timing = 1;
++
++        atomic_set(&this_afe.state, 1);
++        ret = apr_send_pkt(this_afe.apr, (uint32_t *) &start);
++        if (ret < 0) {
++                pr_err("%s: AFE enable for port %d failed %d\n",
++                       __func__, port_id, ret);
++                ret = -EINVAL;
++                return ret;
++        }
++
++        ret = wait_event_timeout(this_afe.wait,
++                                 (atomic_read(&this_afe.state) == 0),
++                                 msecs_to_jiffies(TIMEOUT_MS));
++        if (!ret) {
++                pr_err("%s: wait_event timeout\n", __func__);
++                ret = -EINVAL;
++                return ret;
++        }
++
++        return 0;
++}
++
++int afe_stop_pseudo_port(u16 port_id)
++{
++        int ret = 0;
++        struct afe_pseudoport_stop_command stop;
++
++        pr_info("%s: port_id=%d\n", __func__, port_id);
++
++        if (this_afe.apr == NULL) {
++                pr_err("%s: AFE is already closed\n", __func__);
++                ret = -EINVAL;
++                return ret;
++        }
++
++        stop.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
++                                APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
++        stop.hdr.pkt_size = sizeof(stop);
++        stop.hdr.src_port = 0;
++        stop.hdr.dest_port = 0;
++        stop.hdr.token = 0;
++        stop.hdr.opcode = AFE_PSEUDOPORT_CMD_STOP;
++        stop.port_id = port_id;
++        stop.reserved = 0;
++
++        atomic_set(&this_afe.state, 1);
++        ret = apr_send_pkt(this_afe.apr, (uint32_t *) &stop);
++        if (ret < 0) {
++                pr_err("%s: AFE close failed %d\n", __func__, ret);
++                ret = -EINVAL;
++                return ret;
++        }
++
++        ret = wait_event_timeout(this_afe.wait,
++                                 (atomic_read(&this_afe.state) == 0),
++                                 msecs_to_jiffies(TIMEOUT_MS));
++        if (!ret) {
++                pr_err("%s: wait_event timeout\n", __func__);
++                ret = -EINVAL;
++                return ret;
++        }
++
++        return 0;
++}
++
+ #ifdef CONFIG_DEBUG_FS
+ static struct dentry *debugfs_afelb;
+ 
+@@ -259,9 +411,9 @@
+ 				rc = -EINVAL;
+ 				goto afe_error;
+ 			}
+-			if ((param[1] >= AFE_MAX_PORTS) || (param[2] >=
+-				AFE_MAX_PORTS)) {
+-				pr_aud_err("%s: Error, invalid afe port\n",
++                        if ((afe_validate_port(param[1]) < 0) ||
++                            (afe_validate_port(param[2])) < 0) {
++                                pr_err("%s: Error, invalid afe port\n",
+ 					__func__);
+ 			}
+ 			if (this_afe.apr == NULL) {
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6voice.c pyramid/arch/arm/mach-msm/qdsp6v2/q6voice.c
+--- pyramid_CRC/arch/arm/mach-msm/qdsp6v2/q6voice.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/qdsp6v2/q6voice.c	2011-08-12 16:24:30.000000000 +0400
+@@ -44,6 +44,8 @@
+ 
+ #define BUFFER_PAYLOAD_SIZE 4000
+ 
++#define VOC_REC_NONE 0xFF
++
+ #define AUD_LOG(x...) do { \
+ struct timespec ts; \
+ struct rtc_time tm; \
+@@ -64,6 +66,11 @@
+ 	void *private_data;
+ };
+ 
++struct incall_rec_info {
++       uint32_t pending;
++       uint32_t rec_mode;
++};
++
+ struct voice_data {
+ 	int voc_state;/*INIT, CHANGE, RELEASE, RUN */
+ 	uint32_t voc_path;
+@@ -121,6 +128,8 @@
+ 	struct mutex lock;
+ 
+ 	struct mvs_driver_info mvs_info;
++	struct incall_rec_info rec_info;
++
+ };
+ 
+ struct voice_data voice;
+@@ -1720,6 +1729,137 @@
+ 	return 0;
+ }
+ 
++static int voice_cvs_start_record(struct voice_data *v, uint32_t rec_mode)
++{
++        int ret = 0;
++        void *apr_cvs = voice_get_apr_cvs(v);
++        u16 cvs_handle = voice_get_cvs_handle(v);
++        struct cvs_start_record_cmd cvs_start_record;
++
++        pr_debug("%s: Start record %d\n", __func__, rec_mode);
++
++        cvs_start_record.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
++                                  APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
++        cvs_start_record.hdr.pkt_size = APR_PKT_SIZE(APR_HDR_SIZE,
++                                  sizeof(cvs_start_record) - APR_HDR_SIZE);
++        cvs_start_record.hdr.src_port = 0;
++        cvs_start_record.hdr.dest_port = cvs_handle;
++        cvs_start_record.hdr.token = 0;
++        cvs_start_record.hdr.opcode = VSS_ISTREAM_CMD_START_RECORD;
++
++        if (rec_mode == VOC_REC_UPLINK) {
++                cvs_start_record.rec_mode.rx_tap_point = VSS_TAP_POINT_NONE;
++                cvs_start_record.rec_mode.tx_tap_point =
++                                                VSS_TAP_POINT_STREAM_END;
++        } else if (rec_mode == VOC_REC_DOWNLINK) {
++                cvs_start_record.rec_mode.rx_tap_point =
++                                                VSS_TAP_POINT_STREAM_END;
++                cvs_start_record.rec_mode.tx_tap_point = VSS_TAP_POINT_NONE;
++        } else if (rec_mode == VOC_REC_BOTH) {
++                cvs_start_record.rec_mode.rx_tap_point =
++                                                VSS_TAP_POINT_STREAM_END;
++                cvs_start_record.rec_mode.tx_tap_point =
++                                                VSS_TAP_POINT_STREAM_END;
++        } else {
++                pr_err("%s: Invalid in-call rec_mode %d\n", __func__, rec_mode);
++
++                ret = -EINVAL;
++                goto fail;
++        }
++
++        v->cvs_state = CMD_STATUS_FAIL;
++
++        ret = apr_send_pkt(apr_cvs, (uint32_t *) &cvs_start_record);
++        if (ret < 0) {
++                pr_err("%s: Error %d sending START_RECORD\n", __func__, ret);
++
++                goto fail;
++        }
++
++        ret = wait_event_timeout(v->cvs_wait,
++                                 (v->cvs_state == CMD_STATUS_SUCCESS),
++                                 msecs_to_jiffies(TIMEOUT_MS));
++        if (!ret) {
++                pr_err("%s: wait_event timeout\n", __func__);
++
++                goto fail;
++        }
++
++        return 0;
++
++fail:
++        return ret;
++}
++
++static int voice_cvs_stop_record(struct voice_data *v)
++{
++        int ret = 0;
++        void *apr_cvs = voice_get_apr_cvs(v);
++        u16 cvs_handle = voice_get_cvs_handle(v);
++        struct apr_hdr cvs_stop_record;
++
++        pr_debug("%s: Stop record\n", __func__);
++
++        cvs_stop_record.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
++                                  APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
++        cvs_stop_record.pkt_size = APR_PKT_SIZE(APR_HDR_SIZE,
++                                  sizeof(cvs_stop_record) - APR_HDR_SIZE);
++        cvs_stop_record.src_port = 0;
++        cvs_stop_record.dest_port = cvs_handle;
++        cvs_stop_record.token = 0;
++        cvs_stop_record.opcode = VSS_ISTREAM_CMD_STOP_RECORD;
++
++        v->cvs_state = CMD_STATUS_FAIL;
++
++        ret = apr_send_pkt(apr_cvs, (uint32_t *) &cvs_stop_record);
++        if (ret < 0) {
++                pr_err("%s: Error %d sending STOP_RECORD\n", __func__, ret);
++
++                goto fail;
++        }
++
++        ret = wait_event_timeout(v->cvs_wait,
++                                 (v->cvs_state == CMD_STATUS_SUCCESS),
++                                 msecs_to_jiffies(TIMEOUT_MS));
++        if (!ret) {
++                pr_err("%s: wait_event timeout\n", __func__);
++
++                goto fail;
++        }
++
++        return 0;
++
++fail:
++        return ret;
++}
++
++int voice_start_record(uint32_t rec_mode, uint32_t set)
++{
++        int ret = 0;
++        u16 cvs_handle;
++
++        pr_debug("%s: rec_mode %d, set %d\n", __func__, rec_mode, set);
++
++        mutex_lock(&voice.lock);
++
++        cvs_handle = voice_get_cvs_handle(&voice);
++
++        if (cvs_handle != 0) {
++                if (set)
++                        ret = voice_cvs_start_record(&voice, rec_mode);
++                else
++                        ret = voice_cvs_stop_record(&voice);
++        } else {
++                /* Cache the value for later. */
++                voice.rec_info.pending = set;
++                voice.rec_info.rec_mode = rec_mode;
++        }
++
++        mutex_unlock(&voice.lock);
++
++        return ret;
++}
++
+ static void voice_auddev_cb_function(u32 evt_id,
+ 			union auddev_evt_data *evt_payload,
+ 			void *private_data)
+@@ -1756,6 +1896,14 @@
+ 					sidetone_cal_data.enable,
+ 					sidetone_cal_data.gain);
+ 				v->voc_state = VOC_RUN;
++                                /* Start in-call recording if command was
++                                 * pending. */
++                                if (v->rec_info.pending) {
++                                        voice_cvs_start_record(v,
++                                                v->rec_info.rec_mode);
++
++                                        v->rec_info.pending = 0;
++                                }
+ 			}
+ 		}
+ 
+@@ -1848,6 +1996,12 @@
+ 					sidetone_cal_data.enable,
+ 					sidetone_cal_data.gain);
+ 				v->voc_state = VOC_RUN;
++                                if (v->rec_info.pending) {
++                                        voice_cvs_start_record(v,
++                                                v->rec_info.rec_mode);
++
++                                        v->rec_info.pending = 0;
++				}
+ 			}
+ 		}
+ 
+@@ -2134,6 +2288,18 @@
+ 
+ 				v->cvs_state = CMD_STATUS_SUCCESS;
+ 				wake_up(&v->cvs_wait);
++                        } else if (ptr[0] == VSS_ISTREAM_CMD_START_RECORD) {
++                                pr_debug("%s: START_RECORD resp 0x%x\n",
++                                         __func__, ptr[1]);
++
++                                        v->cvs_state = CMD_STATUS_SUCCESS;
++                                        wake_up(&v->cvs_wait);
++                        } else if (ptr[0] == VSS_ISTREAM_CMD_STOP_RECORD) {
++                                pr_debug("%s: STOP_RECORD resp 0x%x\n",
++                                         __func__, ptr[1]);
++
++                                        v->cvs_state = CMD_STATUS_SUCCESS;
++                                        wake_up(&v->cvs_wait);
+ 			} else
+ 				pr_aud_info("%s: cmd = 0x%x\n", __func__, ptr[0]);
+ 		}
+@@ -2303,7 +2469,8 @@
+ 	/* Initialize MVS info. */
+ 	memset(&v->mvs_info, 0, sizeof(v->mvs_info));
+ 	v->mvs_info.network_type = VSS_NETWORK_ID_DEFAULT;
+-
++	v->rec_info.pending = 0;
++	v->rec_info.rec_mode = VOC_REC_NONE;
+ 	v->device_events = AUDDEV_EVT_DEV_CHG_VOICE |
+ 			AUDDEV_EVT_DEV_RDY |
+ 			AUDDEV_EVT_REL_PENDING |
+diff -Naurwd pyramid_CRC/arch/arm/mach-msm/restart.c pyramid/arch/arm/mach-msm/restart.c
+--- pyramid_CRC/arch/arm/mach-msm/restart.c	2011-07-20 10:13:21.000000000 +0400
++++ pyramid/arch/arm/mach-msm/restart.c	2011-07-31 15:53:31.000000000 +0400
+@@ -196,7 +196,7 @@
+ }
+ 
+ /* It seems that modem would like to lock kernel before restarting the system. */
+-inline void soc_restart(char mode, const char *cmd)
++/* inline */ void soc_restart(char mode, const char *cmd)
+ {
+ 	lock_kernel();
+ 	arm_pm_restart(mode, cmd);
+diff -Naurwd pyramid_CRC/Makefile pyramid/Makefile
+--- pyramid_CRC/Makefile	2011-07-20 10:13:34.000000000 +0400
++++ pyramid/Makefile	2011-07-31 16:36:38.000000000 +0400
+@@ -337,7 +337,7 @@
+ CFLAGS_MODULE   = $(MODFLAGS)
+ AFLAGS_MODULE   = $(MODFLAGS)
+ LDFLAGS_MODULE  = -T $(srctree)/scripts/module-common.lds
+-CFLAGS_KERNEL	=
++CFLAGS_KERNEL	= -mcpu=cortex-a8
+ AFLAGS_KERNEL	=
+ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
+ 
+@@ -348,7 +348,10 @@
+                    $(if $(KBUILD_SRC), -I$(srctree)/include) \
+                    -include include/generated/autoconf.h
+ 
+-KBUILD_CPPFLAGS := -D__KERNEL__
++KBUILD_CPPFLAGS := -D__KERNEL__ -Wno-unused-but-set-variable \
++ -Wno-error=unused-value -Wno-error=switch -Wno-error=uninitialized -Wno-error=address \
++ -Wno-error=enum-compare -Wno-error=parentheses -Wno-error=array-bounds
++
+ 
+ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
+ 		   -fno-strict-aliasing -fno-common \

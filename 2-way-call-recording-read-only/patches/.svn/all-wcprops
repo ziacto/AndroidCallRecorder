@@ -1,0 +1,41 @@
+K 25
+svn:wc:ra_dav:version-url
+V 24
+/svn/!svn/ver/17/patches
+END
+sensation_stock_2_6_35.patch
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/!svn/ver/5/patches/sensation_stock_2_6_35.patch
+END
+sonyericsson_4_0_2_A_0_42.patch
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/!svn/ver/5/patches/sonyericsson_4_0_2_A_0_42.patch
+END
+desire_hd_stock_2_6_35.patch
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/!svn/ver/3/patches/desire_hd_stock_2_6_35.patch
+END
+vivow.patch
+K 25
+svn:wc:ra_dav:version-url
+V 36
+/svn/!svn/ver/17/patches/vivow.patch
+END
+vocpcm.c
+K 25
+svn:wc:ra_dav:version-url
+V 32
+/svn/!svn/ver/7/patches/vocpcm.c
+END
+desire_stock_2_6_35.patch
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/!svn/ver/3/patches/desire_stock_2_6_35.patch
+END
