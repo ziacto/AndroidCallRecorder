@@ -1,0 +1,47 @@
+pcm0p
+放音乐之前
+shell@android:/proc/asound/card0/pcm0p/sub0 # cat hw_params、
+closed
+放音乐的时候
+shell@android:/proc/asound/card0/pcm0p/sub0 # cat hw_params                    
+access: RW_INTERLEAVED
+format: S16_LE
+subformat: STD
+channels: 2
+rate: 44100 (44100/1)
+period_size: 1024
+buffer_size: 4096
+通话的时候
+shell@android:/proc/asound/card0/pcm0p/sub0 # cat hw_params                    
+access: RW_INTERLEAVED
+format: S16_LE
+subformat: STD
+channels: 2
+rate: 44100 (44100/1)
+period_size: 1024
+buffer_size: 4096
+
+
+录音时
+shell@android:/proc/asound/card0/pcm0p/sub0 # cat hw_params                    
+closed
+
+
+pcm0c
+录音的时候
+shell@android:/proc/asound/card0/pcm0c/sub0 # cat hw_params                    
+access: RW_INTERLEAVED
+format: S16_LE
+subformat: STD
+channels: 1
+rate: 44100 (44100/1)
+period_size: 1024
+buffer_size: 4096
+
+在通话的时候
+pcm0c没有任何反应
+
+
+
+
+
