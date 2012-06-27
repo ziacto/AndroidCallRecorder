@@ -1,3 +1,0 @@
-config SND_UDA1380
-	depends on SND && I2C
-	tristate
